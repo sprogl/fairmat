@@ -6,7 +6,7 @@ t_max = 10.0
 t_error = 1e-4
 
 
-class MyCircuit:
+class Circuit:
     """This class simulates the given circuit with the time dependant resistance values."""
 
     voltage = 10.0
@@ -24,25 +24,10 @@ class MyCircuit:
         self.reset()
         self.halt = False
 
-        if voltmeter:
-            self.voltmeter = voltmeter
-        else:
-            self.voltmeter = Voltmeter()
-
-        if ammeter:
-            self.ammeter = ammeter
-        else:
-            self.ammeter = Ammeter()
-
-        if ohmmeter:
-            self.ohmmeter = ohmmeter
-        else:
-            self.ohmmeter = Ohmmeter()
-
-        if ra_ohmmeter:
-            self.ra_ohmmeter = ra_ohmmeter
-        else:
-            self.ra_ohmmeter = RAOhmmeter()
+        self.voltmeter = voltmeter
+        self.ammeter = ammeter
+        self.ohmmeter = ohmmeter
+        self.ra_ohmmeter = ra_ohmmeter
 
     async def counter_t(self) -> None:
         """The core loop in which circuit component values and time stamp is updated: You don't need to use this method in your code in most situations; Use start method instead."""
@@ -56,13 +41,31 @@ class MyCircuit:
 
     async def bootstrap(self) -> None:
         """Bootstraps the circuit assets, such as ammeter, voltmeter, etc. You don't need to use this method in your code in most situations; Use start method instead."""
-        tasks = [
-            self.voltmeter.counter_v(circuit=self),
-            self.ammeter.counter_c(circuit=self),
-            self.ohmmeter.counter_r(voltmeter=self.voltmeter, ammeter=self.ammeter),
-            self.ra_ohmmeter.counter_r(voltmeter=self.voltmeter, ammeter=self.ammeter),
-            self.counter_t(),
-        ]
+        # Import tasks to be scheduled corresponding to each present measurement device and the circuit itself
+        tasks = [self.counter_t()]
+
+        if self.voltmeter:
+            tasks.append(self.voltmeter.counter_v(circuit=self))
+
+        if self.ammeter:
+            tasks.append(self.ammeter.counter_c(circuit=self))
+
+        if self.voltmeter and self.ammeter:
+            if self.ohmmeter:
+                tasks.append(
+                    self.ohmmeter.counter_r(
+                        voltmeter=self.voltmeter, ammeter=self.ammeter
+                    )
+                )
+
+            if self.ra_ohmmeter:
+                tasks.append(
+                    self.ra_ohmmeter.counter_r(
+                        voltmeter=self.voltmeter, ammeter=self.ammeter
+                    )
+                )
+
+        # Schedule coroutines and await them
         await asyncio.gather(*tasks)
 
     def start(self) -> None:
@@ -105,7 +108,7 @@ class Voltmeter:
         self.voltage = 0.0
         self.t = 0.0
 
-    async def counter_v(self, circuit: MyCircuit) -> None:
+    async def counter_v(self, circuit: Circuit) -> None:
         while self.t < t_max - t_error:
             await asyncio.sleep(self.dt)
             self.voltage = circuit.read_voltage()
@@ -125,7 +128,7 @@ class Ammeter:
         self.current = 0.0
         self.t = 0.0
 
-    async def counter_c(self, circuit: MyCircuit) -> None:
+    async def counter_c(self, circuit: Circuit) -> None:
         while self.t < t_max - t_error:
             await asyncio.sleep(self.dt)
             self.current = circuit.read_current()
@@ -176,9 +179,11 @@ class RAOhmmeter(Ohmmeter):
         for timestamp in self.readings_buffer.keys():
             if timestamp + self.t_interval < self.t - t_error:
                 to_be_removed.append(timestamp)
+
         # removes the outdated readings
         for timestamp in to_be_removed:
             del self.readings_buffer[timestamp]
+
         # Take the average of the remaining readings
         return sum(self.readings_buffer.values()) / len(self.readings_buffer)
 
@@ -201,7 +206,13 @@ if __name__ == "__main__":
     am = Ammeter()
     om = Ohmmeter()
     ra_om = RAOhmmeter()
-    # Initialize the circuit simulator
-    circ = MyCircuit(voltmeter=vm, ammeter=am, ohmmeter=om, ra_ohmmeter=ra_om)
+
+    # Initialize the circuit simulator with either of the following 5 lines
+    circ = Circuit(voltmeter=vm, ammeter=am, ohmmeter=om, ra_ohmmeter=ra_om)
+    # circ = Circuit(voltmeter=vm, ammeter=am, ohmmeter=None, ra_ohmmeter=None)
+    # circ = Circuit(voltmeter=vm, ammeter=None, ohmmeter=None, ra_ohmmeter=None)
+    # circ = Circuit(voltmeter=None, ammeter=am, ohmmeter=None, ra_ohmmeter=None)
+    # circ = Circuit(voltmeter=None, ammeter=None, ohmmeter=None, ra_ohmmeter=None)
+
     # Start the simulation
     circ.start()
