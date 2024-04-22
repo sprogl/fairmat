@@ -1,0 +1,2 @@
+# fairmat
+FAIRmat programming assignment
